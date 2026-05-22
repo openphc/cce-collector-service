@@ -2,7 +2,7 @@ name: Java CI and GHCR Push
 
 on:
   push:
-    branches: [ "release-1.0.0" ]
+    branches: [ "devops/uhis-958" ]
   workflow_dispatch:
 
 permissions:

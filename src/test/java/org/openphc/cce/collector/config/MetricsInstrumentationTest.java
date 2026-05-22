@@ -29,6 +29,7 @@ import org.openphc.cce.collector.service.EventPublisher;
 import org.openphc.cce.collector.service.PayloadValidationResult;
 import org.openphc.cce.collector.service.PayloadValidator;
 import org.openphc.cce.collector.service.RejectionService;
+import org.openphc.cce.collector.service.IngestionSummaryService;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -58,6 +59,7 @@ class MetricsInstrumentationTest {
     @Mock private PayloadValidator payloadValidator;
     @Mock private EventPublisher eventPublisher;
     @Mock private RejectionService rejectionService;
+    @Mock private IngestionSummaryService ingestionSummaryService;
 
     private SimpleMeterRegistry meterRegistry;
     private EventIngestionService service;
@@ -71,7 +73,7 @@ class MetricsInstrumentationTest {
         service = new EventIngestionService(
                 cloudEventValidator, deduplicationService, repository,
                 enricher, payloadValidator, eventPublisher, rejectionService,
-                kafkaTopicProperties, meterRegistry, 1_048_576L);
+                ingestionSummaryService, kafkaTopicProperties, meterRegistry, 1_048_576L);
 
         lenient().when(payloadValidator.validatePayload(any()))
                 .thenReturn(PayloadValidationResult.builder()

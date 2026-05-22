@@ -59,6 +59,7 @@ class EventIngestionServiceTest {
     @Mock private PayloadValidator payloadValidator;
     @Mock private EventPublisher eventPublisher;
     @Mock private RejectionService rejectionService;
+    @Mock private IngestionSummaryService ingestionSummaryService;
 
     private SimpleMeterRegistry meterRegistry;
     private EventIngestionService service;
@@ -86,6 +87,7 @@ class EventIngestionServiceTest {
                 payloadValidator,
                 eventPublisher,
                 rejectionService,
+                ingestionSummaryService,
                 kafkaTopicProperties,
                 meterRegistry,
                 MAX_PAYLOAD_SIZE

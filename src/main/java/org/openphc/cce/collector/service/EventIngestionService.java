@@ -56,6 +56,7 @@ public class EventIngestionService {
     private final PayloadValidator payloadValidator;
     private final EventPublisher eventPublisher;
     private final RejectionService rejectionService;
+    private final IngestionSummaryService ingestionSummaryService;
     private final KafkaTopicProperties kafkaTopicProperties;
     private final long maxPayloadSize;
 
@@ -74,6 +75,7 @@ public class EventIngestionService {
             PayloadValidator payloadValidator,
             EventPublisher eventPublisher,
             RejectionService rejectionService,
+            IngestionSummaryService ingestionSummaryService,
             KafkaTopicProperties kafkaTopicProperties,
             MeterRegistry meterRegistry,
             @Value("${cce.collector.max-payload-size:1048576}") long maxPayloadSize) {
@@ -84,6 +86,7 @@ public class EventIngestionService {
         this.payloadValidator = payloadValidator;
         this.eventPublisher = eventPublisher;
         this.rejectionService = rejectionService;
+        this.ingestionSummaryService = ingestionSummaryService;
         this.kafkaTopicProperties = kafkaTopicProperties;
         this.meterRegistry = meterRegistry;
         this.maxPayloadSize = maxPayloadSize;
@@ -138,6 +141,8 @@ public class EventIngestionService {
                     .orElseThrow(() -> new IllegalStateException(
                             "Duplicate detected but original record not found for cloudeventsId="
                                     + request.getId() + ", source=" + request.getSource()));
+            ingestionSummaryService.recordIngestion(existing,
+                    ingestionSummaryService.extractResourceType(request.getData()));
             throw new DuplicateEventException(existing.getId(), existing.getId());
         }
 
@@ -162,6 +167,8 @@ public class EventIngestionService {
                 payloadValidator.validatePayload(request);
             } catch (PayloadValidationException ex) {
                 rejectionService.recordRejection(inbound, ex.getRejectionReason(), ex.getMessage());
+                ingestionSummaryService.recordIngestion(inbound,
+                        ingestionSummaryService.extractResourceType(request.getData()));
                 throw ex;
             }
 
@@ -177,10 +184,14 @@ public class EventIngestionService {
             } catch (KafkaPublishException ex) {
                 rejectionService.recordRejection(inbound, RejectionReason.KAFKA_PUBLISH_FAILURE,
                         ex.getMessage());
+                ingestionSummaryService.recordIngestion(inbound,
+                        ingestionSummaryService.extractResourceType(request.getData()));
                 throw ex;
             } catch (Exception ex) {
                 rejectionService.recordRejection(inbound, RejectionReason.KAFKA_PUBLISH_FAILURE,
                         ex.getMessage());
+                ingestionSummaryService.recordIngestion(inbound,
+                        ingestionSummaryService.extractResourceType(request.getData()));
                 throw new KafkaPublishException(
                         kafkaTopicProperties.getTopics().getInbound(), ex);
             }
@@ -203,6 +214,12 @@ public class EventIngestionService {
 
         acceptedCounter.increment();
         timerSample.stop(ingestionTimer);
+
+        // ── Update pre-computed summary tables (non-blocking) ──────
+        String resourceType = ingestionSummaryService.extractResourceType(request.getData());
+        ingestionSummaryService.recordIngestion(inbound, resourceType);
+        ingestionSummaryService.recordAccepted(inbound, resourceType);
+
         return buildResponse(inbound);
     }
 

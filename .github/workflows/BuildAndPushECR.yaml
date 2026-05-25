@@ -73,7 +73,7 @@ jobs:
         docker push ${IMAGE_URI}:${VERSION_TAG}
         docker push ${IMAGE_URI}:latest
 
-  # trigger-deploy: uncomment when ready to auto-deploy after push
+  
   # trigger-deploy:
   #   needs: build
   #   runs-on: ubuntu-latest

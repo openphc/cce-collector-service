@@ -11,7 +11,8 @@ permissions:
 
 env:
   IMAGE_URI: ghcr.io/${{ github.repository }}
-  IMAGE_TAG: ${{ github.sha }}
+  # Bump patch on each build: v1.0.1, v1.0.2, ... (change major/minor here when needed)
+  VERSION_PREFIX: v1.0
 
 jobs:
   build:
@@ -31,11 +32,33 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
+    - name: Determine next version tag
+      id: version
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        OWNER="${{ github.repository_owner }}"
+        PKG="${{ github.event.repository.name }}"
+        PREFIX="${VERSION_PREFIX}"
+        TAGS=$(gh api "/orgs/${OWNER}/packages/container/${PKG}/versions?per_page=100" \
+          --jq '.[].metadata.container.tags[]' 2>/dev/null | grep -E "^${PREFIX}\.[0-9]+$" || true)
+        if [ -z "$TAGS" ]; then
+          VERSION_TAG="${PREFIX}.1"
+        else
+          MAX_PATCH=$(echo "$TAGS" | sed "s/^${PREFIX}\.//" | sort -n | tail -1)
+          VERSION_TAG="${PREFIX}.$((MAX_PATCH + 1))"
+        fi
+        echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
+        echo "Version tag for this build: ${VERSION_TAG}"
+
     - name: Build with Gradle
       run: ./gradlew build
 
     - name: Build container image
-      run: ./gradlew bootBuildImage --imageName=${IMAGE_URI}:latest
+      run: ./gradlew bootBuildImage --imageName=${IMAGE_URI}:${{ steps.version.outputs.version_tag }}
+
+    - name: Tag image as latest
+      run: docker tag ${IMAGE_URI}:${{ steps.version.outputs.version_tag }} ${IMAGE_URI}:latest
 
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -44,10 +67,10 @@ jobs:
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Tag and push image
+    - name: Push version and latest to GHCR
       run: |
-        docker tag ${IMAGE_URI}:latest ${IMAGE_URI}:${IMAGE_TAG}
-        docker push ${IMAGE_URI}:${IMAGE_TAG}
+        VERSION_TAG="${{ steps.version.outputs.version_tag }}"
+        docker push ${IMAGE_URI}:${VERSION_TAG}
         docker push ${IMAGE_URI}:latest
 
   # trigger-deploy: uncomment when ready to auto-deploy after push

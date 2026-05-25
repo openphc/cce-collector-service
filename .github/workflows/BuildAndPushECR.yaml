@@ -11,8 +11,8 @@ permissions:
 
 env:
   IMAGE_URI: ghcr.io/${{ github.repository }}
-  # Bump patch on each build: v1.0.1, v1.0.2, ... (change major/minor here when needed)
-  VERSION_PREFIX: v1.0
+  # Incremental release tags: v1, v2, v3, ... (one new tag per successful build)
+  VERSION_TAG_PREFIX: v
 
 jobs:
   build:
@@ -39,14 +39,14 @@ jobs:
       run: |
         OWNER="${{ github.repository_owner }}"
         PKG="${{ github.event.repository.name }}"
-        PREFIX="${VERSION_PREFIX}"
+        PREFIX="${VERSION_TAG_PREFIX}"
         TAGS=$(gh api "/orgs/${OWNER}/packages/container/${PKG}/versions?per_page=100" \
-          --jq '.[].metadata.container.tags[]' 2>/dev/null | grep -E "^${PREFIX}\.[0-9]+$" || true)
+          --jq '.[].metadata.container.tags[]' 2>/dev/null | grep -E "^${PREFIX}[0-9]+$" || true)
         if [ -z "$TAGS" ]; then
-          VERSION_TAG="${PREFIX}.1"
+          VERSION_TAG="${PREFIX}1"
         else
-          MAX_PATCH=$(echo "$TAGS" | sed "s/^${PREFIX}\.//" | sort -n | tail -1)
-          VERSION_TAG="${PREFIX}.$((MAX_PATCH + 1))"
+          MAX_NUM=$(echo "$TAGS" | sed "s/^${PREFIX}//" | sort -n | tail -1)
+          VERSION_TAG="${PREFIX}$((MAX_NUM + 1))"
         fi
         echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
         echo "Version tag for this build: ${VERSION_TAG}"

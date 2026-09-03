@@ -1,5 +1,11 @@
 # CCE Collector Service — Release Notes
 
+> Entries before 2.0.0 name the **Compliance Service** as the consumer of `cce.events.inbound`. That
+> was accurate at the time: in 1.x one service consumed the topic and owned everything downstream of
+> ingestion. In 2.0.0 that consumer is the **Matcher Service**, and step SLA verification is the
+> **Step SLA Service** (`cce-step-sla-service`). Past entries are left as written, since a changelog
+> that is edited to match the present stops being a record of what shipped.
+
 ---
 
 ## Unreleased — 2.0.0: adopting cce-common-util

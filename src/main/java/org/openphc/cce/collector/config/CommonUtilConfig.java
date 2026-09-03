@@ -2,6 +2,7 @@ package org.openphc.cce.collector.config;
 
 import org.openphc.cce.common.config.FhirConfig;
 import org.openphc.cce.common.fhir.ClinicalEventTimeExtractor;
+import org.openphc.cce.common.fhir.ResourceTypeDetector;
 import org.openphc.cce.common.kafka.KafkaTopicProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -18,6 +19,12 @@ import org.springframework.context.annotation.Import;
  * table by the time this was written, having already had to reconcile them once when they disagreed
  * about whether an {@code Encounter} occurred at {@code period.start} or {@code period.end}.
  *
+ * <p>{@link ResourceTypeDetector} reads the {@code resourceType} discriminator off an inbound
+ * payload — used here to reject a non-FHIR resource at validation and to pick the clinical-time field
+ * above. The Matcher Service reads it from the same payload to look up triggers, and the two services
+ * had drifted onto different lookups ({@code fromCode} here, {@code valueOf} there) and different
+ * tolerance of a null node, so what counted as an unrecognized type depended on which service asked.
+ *
  * <p>{@link KafkaTopicProperties} names the topic this service produces to and the Matcher Service
  * consumes from, so the two cannot drift onto different spellings of one topic.
  *
@@ -33,6 +40,7 @@ import org.springframework.context.annotation.Import;
  * they have no reason to configure.
  */
 @Configuration
-@Import({FhirConfig.class, ClinicalEventTimeExtractor.class, KafkaTopicProperties.class})
+@Import({FhirConfig.class, ClinicalEventTimeExtractor.class, ResourceTypeDetector.class,
+        KafkaTopicProperties.class})
 public class CommonUtilConfig {
 }

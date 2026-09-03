@@ -7,6 +7,7 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.ResourceType;
 import org.openphc.cce.collector.api.exception.PatientIdNotFoundException;
 import org.openphc.cce.collector.service.PayloadValidationResult;
+import org.openphc.cce.common.fhir.ResourceTypeDetector;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -34,6 +35,7 @@ import java.util.Objects;
 public class FhirResourceValidator {
 
     private final FhirResourceParser parser;
+    private final ResourceTypeDetector resourceTypeDetector;
     private final PatientIdExtractor patientIdExtractor;
 
     /**
@@ -48,7 +50,7 @@ public class FhirResourceValidator {
         List<String> errors = new ArrayList<>();
 
         // Check: resourceType present and a recognized FHIR R4 resource type
-        ResourceType resourceType = parser.detectResourceType(data);
+        ResourceType resourceType = resourceTypeDetector.detect(data);
         if (resourceType == null) {
             errors.add("data.resourceType is required and must be a recognized FHIR R4 resource type");
             return buildResult(errors, null);

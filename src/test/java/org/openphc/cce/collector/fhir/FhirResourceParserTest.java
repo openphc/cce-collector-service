@@ -7,7 +7,6 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Condition;
 import org.hl7.fhir.r4.model.Encounter;
 import org.hl7.fhir.r4.model.Observation;
-import org.hl7.fhir.r4.model.ResourceType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -33,43 +32,6 @@ class FhirResourceParserTest {
     static void setup() {
         FhirContext ctx = FhirContext.forR4();
         parser = new FhirResourceParser(ctx);
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    // detectResourceType
-    // ════════════════════════════════════════════════════════════════
-
-    @Nested
-    @DisplayName("detectResourceType")
-    class DetectResourceType {
-
-        @Test
-        @DisplayName("maps a known resourceType to the ResourceType enum")
-        void returnsResourceType() {
-            JsonNode data = mapper.valueToTree(Map.of("resourceType", "Encounter"));
-            assertThat(parser.detectResourceType(data)).isEqualTo(ResourceType.Encounter);
-        }
-
-        @Test
-        @DisplayName("returns null when key is missing")
-        void returnsNullWhenMissing() {
-            JsonNode data = mapper.valueToTree(Map.of("status", "finished"));
-            assertThat(parser.detectResourceType(data)).isNull();
-        }
-
-        @Test
-        @DisplayName("returns null when value is blank")
-        void returnsNullWhenBlank() {
-            JsonNode data = mapper.valueToTree(Map.of("resourceType", "   "));
-            assertThat(parser.detectResourceType(data)).isNull();
-        }
-
-        @Test
-        @DisplayName("returns null for an unrecognized (non-FHIR-R4) resourceType")
-        void returnsNullForUnknownType() {
-            JsonNode data = mapper.valueToTree(Map.of("resourceType", "UnknownFooBarResource"));
-            assertThat(parser.detectResourceType(data)).isNull();
-        }
     }
 
     // ════════════════════════════════════════════════════════════════

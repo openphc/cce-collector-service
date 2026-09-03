@@ -124,7 +124,7 @@ org.openphc.cce.collector/
 │       ├── DuplicateEventException.java
 │       └── PatientIdNotFoundException.java
 └── fhir/
-    ├── FhirResourceParser.java            # HAPI FHIR parse + type detection
+    ├── FhirResourceParser.java            # HAPI FHIR parse (type detection: common-util)
     ├── FhirResourceValidator.java         # Structural validation + subject cross-check
     └── PatientIdExtractor.java            # Extracts patient UPID from FHIR resource (Patient identifier[], subject/patient reference)
 

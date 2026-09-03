@@ -1,6 +1,5 @@
 package org.openphc.cce.collector.service;
 
-import ca.uhn.fhir.context.FhirContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,8 +8,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.openphc.cce.collector.api.dto.EventIngestionRequest;
 import org.openphc.cce.collector.domain.model.InboundEventLog;
-import org.openphc.cce.collector.fhir.FhirResourceParser;
 import org.openphc.cce.common.fhir.ClinicalEventTimeExtractor;
+import org.openphc.cce.common.fhir.ResourceTypeDetector;
 
 import java.time.OffsetDateTime;
 import java.util.Map;
@@ -34,8 +33,7 @@ class EventDefaultsEnricherTest {
     void setUp() {
         ClinicalEventTimeExtractor extractor =
                 new ClinicalEventTimeExtractor(new SimpleMeterRegistry());
-        FhirResourceParser parser = new FhirResourceParser(FhirContext.forR4());
-        enricher = new EventDefaultsEnricher(extractor, parser);
+        enricher = new EventDefaultsEnricher(extractor, new ResourceTypeDetector());
     }
 
     /**

@@ -4,8 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.openphc.cce.collector.api.dto.EventIngestionRequest;
 import org.openphc.cce.collector.domain.model.InboundEventLog;
 import org.hl7.fhir.r4.model.ResourceType;
-import org.openphc.cce.collector.fhir.FhirResourceParser;
 import org.openphc.cce.common.fhir.ClinicalEventTimeExtractor;
+import org.openphc.cce.common.fhir.ResourceTypeDetector;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
@@ -41,12 +41,12 @@ public class EventDefaultsEnricher {
     private static final String CORRELATION_ID_PREFIX = "corr-";
 
     private final ClinicalEventTimeExtractor clinicalEventTimeExtractor;
-    private final FhirResourceParser fhirResourceParser;
+    private final ResourceTypeDetector resourceTypeDetector;
 
     public EventDefaultsEnricher(ClinicalEventTimeExtractor clinicalEventTimeExtractor,
-                                 FhirResourceParser fhirResourceParser) {
+                                 ResourceTypeDetector resourceTypeDetector) {
         this.clinicalEventTimeExtractor = clinicalEventTimeExtractor;
-        this.fhirResourceParser = fhirResourceParser;
+        this.resourceTypeDetector = resourceTypeDetector;
     }
 
     /**
@@ -120,7 +120,7 @@ public class EventDefaultsEnricher {
     private OffsetDateTime extractClinicalEventTime(EventIngestionRequest eventIngestionRequest) {
         try {
             ResourceType fhirResourceType =
-                    fhirResourceParser.detectResourceType(eventIngestionRequest.getData());
+                    resourceTypeDetector.detect(eventIngestionRequest.getData());
             return clinicalEventTimeExtractor.extract(fhirResourceType, eventIngestionRequest.getData());
         } catch (Exception ex) {
             log.warn("Failed to extract clinical event time — falling back: {}", ex.getMessage());

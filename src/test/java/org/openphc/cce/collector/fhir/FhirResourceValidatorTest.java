@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.openphc.cce.collector.service.PayloadValidationResult;
+import org.openphc.cce.common.fhir.ResourceTypeDetector;
 
 import java.util.HashMap;
 import java.util.List;
@@ -34,7 +35,7 @@ class FhirResourceValidatorTest {
         FhirContext ctx = FhirContext.forR4();
         FhirResourceParser parser = new FhirResourceParser(ctx);
         PatientIdExtractor patientIdExtractor = new PatientIdExtractor("http://openphc.org/identifier/upid");
-        validator = new FhirResourceValidator(parser, patientIdExtractor);
+        validator = new FhirResourceValidator(parser, new ResourceTypeDetector(), patientIdExtractor);
     }
 
     // ════════════════════════════════════════════════════════════════

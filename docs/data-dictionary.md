@@ -125,9 +125,9 @@ Published to `cce.events.inbound` using **CloudEvents spec field names (lowercas
 | `datacontenttype` | `String` | No | Request `datacontenttype` |
 | `correlationid` | `String` | No | Request `correlationid` (enriched as `corr-<uuid>` if absent) |
 | `sourceeventid` | `String` | Yes | Request `sourceeventid` |
-| `protocolinstanceid` | `String` | Yes | (usually null — Compliance Service resolves) |
-| `protocoldefinitionid` | `String` | Yes | (usually null — Compliance Service resolves) |
-| `actionid` | `String` | Yes | (usually null — Compliance Service resolves) |
+| `protocolinstanceid` | `String` | Yes | (usually null — Matcher Service resolves) |
+| `protocoldefinitionid` | `String` | Yes | (usually null — Matcher Service resolves) |
+| `actionid` | `String` | Yes | (usually null — Matcher Service resolves) |
 | `facilityid` | `String` | Yes | Request `facilityid` |
 | `data` | `JsonNode` | No | Request `data` (FHIR R4 resource or JSON object) |
 
@@ -161,7 +161,7 @@ The Collector preserves CloudEvents lowercase field names end-to-end (HTTP → K
 
 The `type` field is a mandatory CloudEvents v1.0 attribute. The Collector validates only that it is **present and non-empty** — it does not enforce any specific format, pattern, or whitelist. The emitter adaptor (openHIM mediator) sets the value; the Collector passes it through to Kafka unchanged.
 
-> **Tier 1 structural matching** in the Compliance Service uses `data.resourceType` (payload), not the envelope `type`.
+> **Tier 1 structural matching** in the Matcher Service uses `data.resourceType` (payload), not the envelope `type`.
 
 ---
 
@@ -193,7 +193,7 @@ The Collector accepts any valid FHIR R4 resource when `datacontenttype` is `appl
 
 ## 8. Clinical Event Time Extraction (`event_time`)
 
-The `event_time` column captures the **clinical occurrence time** — when the clinical act actually happened — as opposed to `received_at` (ingestion time) or the CloudEvents envelope `time` (the emitter adaptor's transmission clock). Basing downstream scheduling on clinical time means ingestion lag (offline sync, batch upload, retries, DLQ replay) does not shift due/overdue/missed dates in the Compliance Service.
+The `event_time` column captures the **clinical occurrence time** — when the clinical act actually happened — as opposed to `received_at` (ingestion time) or the CloudEvents envelope `time` (the emitter adaptor's transmission clock). Basing downstream scheduling on clinical time means ingestion lag (offline sync, batch upload, retries, DLQ replay) does not shift due/overdue/missed dates in the Matcher Service.
 
 `event_time` is populated during enrichment (`EventDefaultsEnricher`) with the following **precedence** — the first that resolves wins:
 

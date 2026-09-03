@@ -33,9 +33,9 @@ Ingest a single CloudEvents-formatted clinical event.
 | `correlationid` | `string` | No | Trace correlation ID (generated if absent) |
 | `facilityid` | `string` | No | Facility identifier |
 | `sourceeventid` | `string` | No | Source-system internal event identifier |
-| `protocolinstanceid` | `string` | No | Protocol instance reference (set by Compliance Service) |
-| `protocoldefinitionid` | `string` | No | Protocol definition reference (set by Compliance Service) |
-| `actionid` | `string` | No | Action/step reference (set by Compliance Service) |
+| `protocolinstanceid` | `string` | No | Protocol instance reference (set by Matcher Service) |
+| `protocoldefinitionid` | `string` | No | Protocol definition reference (set by Matcher Service) |
+| `actionid` | `string` | No | Action/step reference (set by Matcher Service) |
 
 > **Note:** Field names use **lowercase** as per CloudEvents HTTP binding specification. Any fields not in the above list are captured via `@JsonAnySetter` as extension attributes.
 

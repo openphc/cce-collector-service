@@ -11,7 +11,7 @@ Detailed reference for all Kafka topics, message schemas, publishing contracts, 
 | Property | Value |
 |----------|-------|
 | **Topic** | `cce.events.inbound` |
-| **Direction** | Produced by Collector, consumed by Compliance Service |
+| **Direction** | Produced by Collector, consumed by Matcher Service |
 | **Message Key** | `subject` (patient UPID) — guarantees per-patient ordering. Extracted from FHIR resource: Patient `identifier[]` (matching system URI) or `id`; RelatedPerson `patient` reference; other resources via `subject`/`patient` reference |
 | **Message Value** | CloudEvents JSON (lowercase field names per spec) |
 | **Serialization** | Key: `StringSerializer`, Value: `JsonSerializer` |
@@ -128,9 +128,9 @@ The Kafka message value is a CloudEvents JSON object. Field names use **lowercas
 | `datacontenttype` | `String` | Yes | MIME type (typically `application/fhir+json`) |
 | `correlationid` | `String` | Yes | Distributed tracing ID (source-provided or generated `corr-<uuid>`) |
 | `sourceeventid` | `String` | No | Source system's internal event ID |
-| `protocolinstanceid` | `String` | No | Protocol instance UUID (usually null — Compliance Service resolves) |
-| `protocoldefinitionid` | `String` | No | Protocol definition UUID (usually null — Compliance Service resolves) |
-| `actionid` | `String` | No | Action/step ID (usually null — Compliance Service resolves) |
+| `protocolinstanceid` | `String` | No | Protocol instance UUID (usually null — Matcher Service resolves) |
+| `protocoldefinitionid` | `String` | No | Protocol definition UUID (usually null — Matcher Service resolves) |
+| `actionid` | `String` | No | Action/step ID (usually null — Matcher Service resolves) |
 | `facilityid` | `String` | No | Healthcare facility FOSA ID |
 | `data` | `Object` | Yes | FHIR R4 resource JSON or valid JSON object (structurally validated) |
 
@@ -169,7 +169,7 @@ kafkaTemplate.send(inboundTopic, event.getSubject(), event);
 
 This guarantees:
 - **Per-patient ordering** — all events for the same patient go to the same partition
-- **Compliance Service can process events in order** — critical for protocol step matching
+- **Matcher Service can process events in order** — critical for protocol step matching
 
 ### Example Keys
 
@@ -180,14 +180,14 @@ This guarantees:
 
 ---
 
-## 6. Compliance Service Consumer Contract
+## 6. Matcher Service Consumer Contract
 
-The Compliance Service consumes from `cce.events.inbound` with these guarantees from the Collector:
+The Matcher Service consumes from `cce.events.inbound` with these guarantees from the Collector:
 
 | # | Guarantee | Description |
 |---|-----------|-------------|
 | 1 | `subject` always present | Used for patient protocol instance lookup |
-| 2 | `type` is always present and non-empty | Passed through from emitter; Compliance Service uses `data.resourceType` for Tier 1 structural matching |
+| 2 | `type` is always present and non-empty | Passed through from emitter; Matcher Service uses `data.resourceType` for Tier 1 structural matching |
 | 3 | `data` contains valid payload | FHIR R4 resource or valid JSON object depending on `datacontenttype` |
 | 4 | Field names use CloudEvents lowercase convention | e.g., `specversion`, `datacontenttype`, `correlationid` |
 | 5 | Kafka key = `subject` | Per-patient ordering |
@@ -195,9 +195,9 @@ The Compliance Service consumes from `cce.events.inbound` with these guarantees 
 | 7 | Each message maps to an `inbound_event_log` row | Authoritative source of truth |
 
 **What the Collector does NOT populate:**
-- `protocolinstanceid` — Compliance Service resolves this from its `protocol_instance` table
-- `protocoldefinitionid` — Compliance Service resolves this from its `protocol_definition` table
-- `actionid` — Compliance Service determines the matching action/step
+- `protocolinstanceid` — Matcher Service resolves this from its `protocol_instance` table
+- `protocoldefinitionid` — Matcher Service resolves this from its `protocol_definition` table
+- `actionid` — Matcher Service determines the matching action/step
 
 ---
 

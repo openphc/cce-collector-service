@@ -176,7 +176,7 @@ flowchart LR
         CS[Collector Service<br/>validate → dedup<br/>→ publish]
         PG[(PostgreSQL<br/>inbound_event_log)]
         KF[Kafka<br/>cce.events.inbound]
-        COMP[Compliance Service]
+        COMP[Matcher Service]
     end
 
     EMR1 --> OH

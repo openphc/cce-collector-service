@@ -4,7 +4,7 @@
 
 The Collector Service is the **single point of entry** for all clinical events into the Care Coordination Engine (CCE) platform. No external system publishes directly to Kafka — every event flows through the Collector.
 
-It receives clinical events from external EHR/RHIE systems (via openHIM mediators or direct integrations), validates them as CloudEvents v1.0 envelopes with FHIR R4 or plain JSON payloads, and publishes them to Kafka for downstream processing by the Compliance Service.
+It receives clinical events from external EHR/RHIE systems (via openHIM mediators or direct integrations), validates them as CloudEvents v1.0 envelopes with FHIR R4 or plain JSON payloads, and publishes them to Kafka for downstream processing by the Matcher Service.
 
 ## 2. Responsibilities
 
@@ -22,7 +22,7 @@ It receives clinical events from external EHR/RHIE systems (via openHIM mediator
 
 ### Explicit Exclusions
 
-- Protocol matching, step completion, or compliance tracking → **Compliance Service**
+- Protocol matching, step completion, or compliance tracking → **Matcher Service**
 - Time-based state transitions → **Scheduler Service**
 - OAuth token management, routing, rate limiting → **Gateway Service**
 - Analytics or reporting → **Analytics Service**
@@ -53,7 +53,7 @@ It receives clinical events from external EHR/RHIE systems (via openHIM mediator
                            │  Kafka: cce.events.inbound
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              CCE Compliance Service                           │
+│              CCE Matcher Service                           │
 │    Match → Enroll → Complete Steps → Detect Deviations       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -229,7 +229,7 @@ The unique constraint on `inbound_event_log` serves as the permanent deduplicati
 
 | Topic | Key | Purpose |
 |-------|-----|---------|
-| `cce.events.inbound` | `subject` (patient UPID) | Validated events for Compliance Service |
+| `cce.events.inbound` | `subject` (patient UPID) | Validated events for Matcher Service |
 
 > **Note:** Rejected events are tracked in `inbound_event_log` (status = REJECTED, rejection_reason, error_details). No dead-letter topic is implemented — rejection monitoring is done via database queries and the `cce.collector.events.rejected` counter metric (tagged by reason).
 
@@ -308,18 +308,18 @@ Any `datacontenttype` other than `application/fhir+json` or `application/json` i
 
 The `type` field is a mandatory CloudEvents v1.0 attribute. The Collector validates only that it is **present and non-empty** — it does not enforce any specific format or pattern. The emitter adaptor (openHIM mediator) sets the value; the Collector passes it through to Kafka unchanged.
 
-> **Tier 1 structural matching** in the Compliance Service uses `data.resourceType` (payload), not the envelope `type`.
+> **Tier 1 structural matching** in the Matcher Service uses `data.resourceType` (payload), not the envelope `type`.
 
-## 11. Compliance Service Contract
+## 11. Matcher Service Contract
 
-The Compliance Service consumes CloudEvents JSON objects from `cce.events.inbound` with these guarantees from the Collector:
+The Matcher Service consumes CloudEvents JSON objects from `cce.events.inbound` with these guarantees from the Collector:
 
 1. **`subject` is always present** — used for patient protocol instance lookup
-2. **`type` is always present and non-empty** — passed through from the emitter; Compliance Service uses `data.resourceType` (not `type`) for Tier 1 structural matching
+2. **`type` is always present and non-empty** — passed through from the emitter; Matcher Service uses `data.resourceType` (not `type`) for Tier 1 structural matching
 3. **`data` contains a valid payload** — FHIR R4 resource (parseable via HAPI FHIR) when `datacontenttype` is `application/fhir+json`; valid JSON object when `datacontenttype` is `application/json`
 4. **Field names use CloudEvents spec convention (lowercase)** — e.g., `specversion`, `datacontenttype`, `correlationid`
 5. **Kafka key is `subject`** — per-patient ordering
 6. **`correlationid` is always present** — for distributed tracing
 7. **Each message maps to an `inbound_event_log` row** — authoritative source of truth
 
-The Collector does NOT populate `protocolinstanceid`, `protocoldefinitionid`, or `actionid` — the Compliance Service resolves these independently.
+The Collector does NOT populate `protocolinstanceid`, `protocoldefinitionid`, or `actionid` — the Matcher Service resolves these independently.

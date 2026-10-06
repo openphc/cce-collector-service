@@ -209,7 +209,7 @@ Extraction is **best-effort**: an unmapped resource type, a missing field, or an
 FHIR has no single "when did this happen" field; each resource type carries its own, and most are polymorphic choice types (`effective[x]`, `performed[x]`, `occurrence[x]`). The extractor probes an ordered list of concrete JSON fields per resource type and takes the first that parses. A `Period`'s `end` says when the encounter *finished* rather than when the clinical act occurred, so it is the **last resort** in each list — tried only after every other field, including that same Period's `start`.
 
 The mapping is `ClinicalEventTimeExtractor` in
-[cce-common-util](../../cce-common-util/src/main/java/org/openphc/cce/common/fhir/ClinicalEventTimeExtractor.java),
+[cce-common-util](https://github.com/openphc/cce-common-util/blob/release-2.0.0/src/main/java/org/openphc/cce/common/fhir/ClinicalEventTimeExtractor.java),
 shared with the Matcher Service. That matters more than it looks: this service stamps `event_time` from
 it, and the Matcher Service derives a completed step's `completed_at` — and so its SLA verdict — from
 the same reading of the same payload. The two services held separate copies until 2.0.0, and they had

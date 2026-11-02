@@ -154,13 +154,16 @@ All configuration can be overridden via environment variables using Spring Boot'
 
 ### Build Image
 
+The build context is the directory holding both `cce-collector-service` and `cce-common-util`
+(`settings.gradle` includes `../cce-common-util` as a composite build). Run from that directory:
+
 ```bash
-docker build -t cce-collector-service:latest .
+docker build -f cce-collector-service/Dockerfile -t cce-collector-service:latest .
 ```
 
 The Dockerfile uses a **multi-stage build**:
-1. Stage 1 (`builder`): `eclipse-temurin:21-jdk-alpine` — compiles `./gradlew build`
-2. Stage 2 (`runtime`): `eclipse-temurin:21-jre-alpine` — minimal runtime image
+1. Stage 1 (`builder`): `eclipse-temurin:21-jdk-alpine` — compiles `./gradlew build` against `cce-common-util`
+2. Stage 2 (`runtime`): `eclipse-temurin:21-jre-alpine` — minimal runtime image, non-root `cce` user, `HEALTHCHECK` on `/actuator/health`
 
 ### Run Container
 

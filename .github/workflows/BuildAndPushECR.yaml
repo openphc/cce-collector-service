@@ -81,9 +81,15 @@ jobs:
       working-directory: cce-collector-service
       run: ./gradlew build
 
+    # Built from the repository Dockerfile (non-root user, EXPOSE/HEALTHCHECK) rather than
+    # bootBuildImage, whose buildpack image has no shell, wget or HEALTHCHECK.
+    # The context is the workspace directory holding both repositories, not this
+    # one: stage 1 COPYs from cce-common-util/ as well, and Docker COPY cannot
+    # reach outside its context. This is the invocation the Dockerfile documents.
     - name: Build container image
-      working-directory: cce-collector-service
-      run: ./gradlew bootBuildImage --imageName=${IMAGE_URI}:${{ steps.version.outputs.version_tag }}
+      run: |
+        docker build -f cce-collector-service/Dockerfile \
+          -t ${IMAGE_URI}:${{ steps.version.outputs.version_tag }} .
 
     - name: Tag image as latest
       run: docker tag ${IMAGE_URI}:${{ steps.version.outputs.version_tag }} ${IMAGE_URI}:latest

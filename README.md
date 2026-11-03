@@ -138,7 +138,8 @@ java -jar build/libs/cce-collector-service-*.jar \
 ### Option 3: Docker image
 
 ```bash
-docker build -t cce-collector-service .
+# Run from the directory holding both cce-collector-service and cce-common-util
+docker build -f cce-collector-service/Dockerfile -t cce-collector-service .
 docker run -p 8080:8080 \
   -e SPRING_PROFILES_ACTIVE=production \
   -e DB_HOST=db.example.com \

@@ -149,12 +149,15 @@ src/main/resources/
     c. subject must be non-empty (patient UPID required by CCE)
     d. If validation fails → 400 + update inbound_event_log status = 'REJECTED' with rejection details
  3. Deduplication Check
-    a. Query PostgreSQL: check if (source, cloudevents_id) exists with status = 'ACCEPTED' within lookback window
-       - If exists → return 200 (idempotent). The event is already in Kafka.
-    b. If not found → proceed. An earlier attempt that is RECEIVED or REJECTED is not a duplicate.
+    a. Query PostgreSQL: is there an earlier attempt for (source, cloudevents_id) within the lookback window that is final?
+       - Final = status 'ACCEPTED' (the event is in Kafka), or 'REJECTED' because the event is wrong (for example INVALID_FHIR)
+       - If yes → return 200 "duplicate" (idempotent). Nothing is processed.
+    b. If no → proceed. An earlier attempt is not final when:
+       - it is 'REJECTED' with KAFKA_PUBLISH_FAILURE or INTERNAL_ERROR (the Collector failed), or
+       - it is still 'RECEIVED' (the Collector stopped in the middle)
  4. Persist to inbound_event_log (status = 'RECEIVED', raw_payload = original body)
     a. First attempt → new row
-    b. Retry of an event that was not accepted → the same row, set back to 'RECEIVED'
+    b. Retry of an event whose earlier attempt is not final → the same row, set back to 'RECEIVED'
  5. Apply Server-Side Defaults
     a. Generate correlationid if absent (UUID with "corr-" prefix)
     b. Fill time with server received_at if absent
@@ -224,8 +227,11 @@ The unique constraint on `inbound_event_log` serves as the permanent deduplicati
 
 - An event that was already accepted, submitted again → **200 OK** with `status: "duplicate"` (not 409)
 - Event is **not** re-published to Kafka on duplicate
-- An event that was **not** accepted, submitted again → processed again. It is not a duplicate.
+- An event that was rejected because it is wrong (for example `INVALID_FHIR`), submitted again → also **200 OK** with `status: "duplicate"`. The same event gives the same result, so the rejection is final.
+- An event that was rejected because the Collector failed, submitted again → processed again. It is not a duplicate.
+  - This covers two rejection reasons only: `KAFKA_PUBLISH_FAILURE` and `INTERNAL_ERROR`.
   - Example: the first attempt failed at the Kafka publish (500, `REJECTED`). The retry is published and gets 202.
+- An event that is still `RECEIVED` (the Collector stopped in the middle), submitted again → processed again.
 - Standard idempotent POST pattern used by openHIM mediators
 
 ## 9. Kafka Integration
@@ -269,10 +275,23 @@ All producer settings are env-var-configurable via `application.yml` (see Deploy
 
 Kafka publish is **synchronous** within the HTTP request. On failure, the Collector returns HTTP 500 and marks the event as `REJECTED` with `KAFKA_PUBLISH_FAILURE`.
 
+**Which rejected events are tried again.** Only the ones that were rejected because the Collector failed:
+
+| Rejection reason | Tried again? | Why |
+|---|---|---|
+| `KAFKA_PUBLISH_FAILURE` | Yes | The event was valid. Kafka did not take it. |
+| `INTERNAL_ERROR` | Yes | Something unexpected failed after the event was stored. |
+| every other reason (`INVALID_FHIR`, `INVALID_JSON`, …) | No | The event is wrong. Sending it again gives the same result. |
+
 A failed publish is repaired in two ways:
 
 - **The source retries.** The retry is processed again on the same row. It is not answered "duplicate".
-- **The republish job.** `RejectedEventRepublisher` runs every minute. It publishes the stored `REJECTED` events with reason `KAFKA_PUBLISH_FAILURE` again, oldest first, and marks them `ACCEPTED`. It stops at the first failure and tries again on the next run.
+- **The republish job** (`RejectedEventRepublisher`). It is **off by default**. Turn it on with `CCE_COLLECTOR_REPUBLISH_ENABLED=true`.
+  - Example: after a Kafka outage, turn it on until the waiting events are published, then turn it off.
+  - It runs every minute. It reads the stored `REJECTED` events with one of the two reasons above, oldest first.
+  - It sends each one through the normal steps again, from its stored `raw_payload`: validation, Kafka publish, then `ACCEPTED`.
+  - It stops a run after 3 Kafka failures in a row, because Kafka is most likely down. The next run tries again.
+  - There is no limit on how often one event is tried. An event that fails on every run is tried again on every run, for as long as the job is on.
 
 An event can reach Kafka twice. Example: the publish timed out here but reached the broker later, and the job published it again. This is safe. The Matcher skips an event it has already processed (same CloudEvents id and source).
 

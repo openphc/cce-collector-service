@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.openphc.cce.collector.config.DeduplicationProperties;
 import org.openphc.cce.collector.domain.model.enums.InboundStatus;
+import org.openphc.cce.collector.domain.model.enums.RejectionReason;
 import org.openphc.cce.collector.domain.repository.InboundEventLogRepository;
 
 import java.time.OffsetDateTime;
@@ -65,8 +66,9 @@ class DeduplicationServiceTest {
         @Test
         @DisplayName("returns false when repository finds no match")
         void notDuplicate() {
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), any(OffsetDateTime.class)))
+            when(repository.existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), any(OffsetDateTime.class),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames())))
                     .thenReturn(false);
 
             boolean result = service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
@@ -77,13 +79,14 @@ class DeduplicationServiceTest {
         @Test
         @DisplayName("queries repository with correct id and source")
         void queriesWithCorrectParams() {
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    any(), any(), any(), any())).thenReturn(false);
+            when(repository.existsFinalAttempt(
+                    any(), any(), any(), any(), any(), any())).thenReturn(false);
 
             service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
 
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), any(OffsetDateTime.class));
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), any(OffsetDateTime.class),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
         }
     }
 
@@ -98,8 +101,9 @@ class DeduplicationServiceTest {
         @Test
         @DisplayName("returns true when repository finds a match")
         void isDuplicate() {
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), any(OffsetDateTime.class)))
+            when(repository.existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), any(OffsetDateTime.class),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames())))
                     .thenReturn(true);
 
             boolean result = service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
@@ -121,15 +125,17 @@ class DeduplicationServiceTest {
         void notDuplicateWithDifferentSource() {
             String differentSource = "another-mediator";
 
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(differentSource), eq(InboundStatus.ACCEPTED), any(OffsetDateTime.class)))
+            when(repository.existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(differentSource), any(OffsetDateTime.class),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames())))
                     .thenReturn(false);
 
             boolean result = service.isDuplicate(CLOUD_EVENTS_ID, differentSource);
 
             assertThat(result).isFalse();
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(differentSource), eq(InboundStatus.ACCEPTED), any(OffsetDateTime.class));
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(differentSource), any(OffsetDateTime.class),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
         }
     }
 
@@ -144,14 +150,15 @@ class DeduplicationServiceTest {
         @Test
         @DisplayName("default lookback is 30 days")
         void defaultLookback30Days() {
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    any(), any(), any(), any())).thenReturn(false);
+            when(repository.existsFinalAttempt(
+                    any(), any(), any(), any(), any(), any())).thenReturn(false);
 
             service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
 
             ArgumentCaptor<OffsetDateTime> captor = ArgumentCaptor.forClass(OffsetDateTime.class);
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), captor.capture());
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), captor.capture(),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
 
             OffsetDateTime lookbackDate = captor.getValue();
             OffsetDateTime expected = OffsetDateTime.now().minusDays(30);
@@ -165,14 +172,15 @@ class DeduplicationServiceTest {
         void customLookbackWindow() {
             properties.setLookbackDays(7);
 
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    any(), any(), any(), any())).thenReturn(false);
+            when(repository.existsFinalAttempt(
+                    any(), any(), any(), any(), any(), any())).thenReturn(false);
 
             service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
 
             ArgumentCaptor<OffsetDateTime> captor = ArgumentCaptor.forClass(OffsetDateTime.class);
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), captor.capture());
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), captor.capture(),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
 
             OffsetDateTime lookbackDate = captor.getValue();
             OffsetDateTime expected = OffsetDateTime.now().minusDays(7);
@@ -185,14 +193,15 @@ class DeduplicationServiceTest {
         void oneDayLookback() {
             properties.setLookbackDays(1);
 
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    any(), any(), any(), any())).thenReturn(false);
+            when(repository.existsFinalAttempt(
+                    any(), any(), any(), any(), any(), any())).thenReturn(false);
 
             service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
 
             ArgumentCaptor<OffsetDateTime> captor = ArgumentCaptor.forClass(OffsetDateTime.class);
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), captor.capture());
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), captor.capture(),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
 
             OffsetDateTime lookbackDate = captor.getValue();
             OffsetDateTime expected = OffsetDateTime.now().minusDays(1);
@@ -205,14 +214,15 @@ class DeduplicationServiceTest {
         void zeroLookback() {
             properties.setLookbackDays(0);
 
-            when(repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    any(), any(), any(), any())).thenReturn(false);
+            when(repository.existsFinalAttempt(
+                    any(), any(), any(), any(), any(), any())).thenReturn(false);
 
             service.isDuplicate(CLOUD_EVENTS_ID, SOURCE);
 
             ArgumentCaptor<OffsetDateTime> captor = ArgumentCaptor.forClass(OffsetDateTime.class);
-            verify(repository).existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    eq(CLOUD_EVENTS_ID), eq(SOURCE), eq(InboundStatus.ACCEPTED), captor.capture());
+            verify(repository).existsFinalAttempt(
+                    eq(CLOUD_EVENTS_ID), eq(SOURCE), captor.capture(),
+                    eq(InboundStatus.ACCEPTED), eq(InboundStatus.REJECTED), eq(RejectionReason.retryableNames()));
 
             OffsetDateTime lookbackDate = captor.getValue();
             OffsetDateTime expected = OffsetDateTime.now();

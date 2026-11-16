@@ -37,10 +37,15 @@ import java.util.List;
  *   <li>Update {@code inbound_event_log.status} = ACCEPTED</li>
  * </ol>
  *
- * <p>ACCEPTED means the event is in Kafka. Only an ACCEPTED event is a duplicate.
- * When the source sends again an event that was not accepted, the event is processed
- * again on the same row. This is how a failed Kafka publish is repaired by the
- * source's retry.</p>
+ * <p>ACCEPTED means the event is in Kafka. When the source sends an event again:</p>
+ * <ul>
+ *   <li>the earlier attempt was accepted, or was rejected because the event is wrong
+ *       → "duplicate". Nothing is processed.</li>
+ *   <li>the earlier attempt was rejected because the Collector failed
+ *       (KAFKA_PUBLISH_FAILURE, INTERNAL_ERROR), or is still RECEIVED
+ *       → the event is processed again, on the same row.</li>
+ * </ul>
+ * <p>This is how a failed Kafka publish is repaired by the source's retry.</p>
  *
  * <p>Each failure case updates the {@code inbound_event_log} record with the
  * appropriate {@link RejectionReason} (except envelope failures which occur
@@ -140,7 +145,7 @@ public class EventIngestionService {
         checkPayloadSize(request);
 
         // ── Step 3: Deduplication check ────────────────────────────
-        // Only an event that was accepted before is a duplicate.
+        // A duplicate has a final earlier attempt: accepted, or rejected because the event is wrong.
         if (deduplicationService.isDuplicate(request.getId(), request.getSource())) {
             duplicateCounter.increment();
             InboundEventLog existing = repository
@@ -276,7 +281,7 @@ public class EventIngestionService {
      *
      * <ul>
      *   <li>First attempt: a new row.</li>
-     *   <li>Retry of an event that was never accepted: the row of the earlier attempt.
+     *   <li>Retry of an event whose earlier attempt is not final: the row of that attempt.
      *       The table allows one row per {@code (cloudevents_id, source)}, so the row is
      *       used again. It goes back to RECEIVED and the old rejection is cleared.</li>
      * </ul>

@@ -6,14 +6,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Settings for publishing again the events whose Kafka publish failed.
- * Bound to {@code cce.collector.republish}.
+ * Settings for trying again the stored events that were rejected because the
+ * Collector failed (KAFKA_PUBLISH_FAILURE, INTERNAL_ERROR).
+ * Bound to {@code cce.collector.republish}. The job is off by default.
  *
  * <pre>
  * cce:
  *   collector:
  *     republish:
- *       enabled: true
+ *       enabled: false
  *       interval-ms: 60000
  *       batch-size: 500
  * </pre>
@@ -26,12 +27,12 @@ import org.springframework.stereotype.Component;
 @Setter
 public class RepublishProperties {
 
-    /** Turn the scheduled republish on or off. */
-    private boolean enabled = true;
+    /** Turn the scheduled job on or off. Off by default. */
+    private boolean enabled = false;
 
     /** Wait time between two runs, in milliseconds. */
     private long intervalMs = 60_000;
 
-    /** Most events published again in one run. */
+    /** Most events tried again in one run. */
     private int batchSize = 500;
 }

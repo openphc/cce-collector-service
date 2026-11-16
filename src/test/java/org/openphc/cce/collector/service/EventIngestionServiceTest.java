@@ -578,7 +578,7 @@ class EventIngestionServiceTest {
     // ════════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("Retry of an event that was not accepted → processed again on the same row")
+    @DisplayName("Retry of an event whose earlier attempt is not final → processed again on the same row")
     class RetryOfEventThatWasNotAccepted {
 
         private InboundEventLog rejectedEarlierAttempt(UUID existingId) {
@@ -599,7 +599,7 @@ class EventIngestionServiceTest {
         void retryAfterFailedPublishIsAccepted() {
             EventIngestionRequest request = buildValidFhirRequest();
             UUID existingId = UUID.randomUUID();
-            // The dedup check counts only ACCEPTED rows, so the REJECTED row is not a duplicate.
+            // The earlier attempt failed at the Kafka publish. That is not final, so this is not a duplicate.
             when(deduplicationService.isDuplicate(CLOUD_EVENTS_ID, SOURCE)).thenReturn(false);
             when(repository.findByCloudeventsIdAndSource(CLOUD_EVENTS_ID, SOURCE))
                     .thenReturn(Optional.of(rejectedEarlierAttempt(existingId)));

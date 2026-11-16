@@ -118,6 +118,19 @@ class EventDefaultsEnricherTest {
         }
 
         @Test
+        @DisplayName("keeps the correlationId of an earlier attempt when the request has none")
+        void keepsCorrelationIdOfEarlierAttempt() {
+            EventIngestionRequest request = requestWithoutOptionals();
+            InboundEventLog entity = baseEntity();
+            entity.setCorrelationId("corr-first-attempt");
+
+            enricher.enrich(request, entity);
+
+            assertThat(entity.getCorrelationId()).isEqualTo("corr-first-attempt");
+            assertThat(request.getCorrelationid()).isEqualTo("corr-first-attempt");
+        }
+
+        @Test
         @DisplayName("generates unique correlationId on each call")
         void generatesUniqueIds() {
             EventIngestionRequest req1 = requestWithoutOptionals();

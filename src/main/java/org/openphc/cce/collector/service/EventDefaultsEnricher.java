@@ -66,17 +66,26 @@ public class EventDefaultsEnricher {
     }
 
     /**
-     * Generate a correlation ID if absent: {@code "corr-" + UUID}.
-     * Sets the value on both entity and request.
+     * Set the correlation ID on both entity and request.
+     *
+     * <ul>
+     *   <li>The request has one: use it.</li>
+     *   <li>The request has none, but the row has one from an earlier attempt: keep it.
+     *       So an event that is tried again keeps the same correlation ID.</li>
+     *   <li>Neither has one: generate {@code "corr-" + UUID}.</li>
+     * </ul>
      */
     private void enrichCorrelationId(EventIngestionRequest request, InboundEventLog inbound) {
-        if (isBlank(request.getCorrelationid())) {
+        if (!isBlank(request.getCorrelationid())) {
+            inbound.setCorrelationId(request.getCorrelationid());
+        } else if (!isBlank(inbound.getCorrelationId())) {
+            request.setCorrelationid(inbound.getCorrelationId());
+            log.debug("Kept correlationId of the earlier attempt: {}", inbound.getCorrelationId());
+        } else {
             String generated = CORRELATION_ID_PREFIX + UUID.randomUUID();
             inbound.setCorrelationId(generated);
             request.setCorrelationid(generated);
             log.debug("Generated correlationId: {}", generated);
-        } else {
-            inbound.setCorrelationId(request.getCorrelationid());
         }
     }
 

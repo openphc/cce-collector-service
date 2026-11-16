@@ -92,86 +92,105 @@ class InboundEventLogRepositoryTest {
         }
     }
 
-    // ─── existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter ─────
+    // ─── existsFinalAttempt ───────────────────────────────────────────
 
     @Nested
-    @DisplayName("existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter")
-    class ExistsByStatusAndLookbackWindow {
+    @DisplayName("existsFinalAttempt")
+    class ExistsFinalAttempt {
 
-        @Test
-        @DisplayName("returns true when an accepted event exists after the lookback timestamp")
-        void trueWhenAcceptedWithinWindow() {
-            InboundEventLog event = buildEvent("evt-002", "urn:source:a", InboundStatus.ACCEPTED);
-            event.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        private static final List<String> RETRYABLE = List.of("KAFKA_PUBLISH_FAILURE", "INTERNAL_ERROR");
+
+        private boolean finalAttemptExists(String cloudeventsId) {
+            return repository.existsFinalAttempt(cloudeventsId, "urn:source:a",
+                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1),
+                    InboundStatus.ACCEPTED, InboundStatus.REJECTED, RETRYABLE);
+        }
+
+        private void save(String cloudeventsId, InboundStatus status, String rejectionReason, int hoursAgo) {
+            InboundEventLog event = buildEvent(cloudeventsId, "urn:source:a", status);
+            event.setRejectionReason(rejectionReason);
+            event.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC).minusHours(hoursAgo));
             repository.save(event);
-
-            boolean exists = repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    "evt-002", "urn:source:a", InboundStatus.ACCEPTED,
-                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
-
-            assertThat(exists).isTrue();
         }
 
         @Test
-        @DisplayName("returns false when the accepted event is before the lookback timestamp")
-        void falseWhenOutsideWindow() {
-            InboundEventLog event = buildEvent("evt-002", "urn:source:a", InboundStatus.ACCEPTED);
-            event.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(2));
-            repository.save(event);
+        @DisplayName("an accepted event is final")
+        void acceptedIsFinal() {
+            save("evt-002", InboundStatus.ACCEPTED, null, 0);
 
-            boolean exists = repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    "evt-002", "urn:source:a", InboundStatus.ACCEPTED,
-                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
-
-            assertThat(exists).isFalse();
+            assertThat(finalAttemptExists("evt-002")).isTrue();
         }
 
         @Test
-        @DisplayName("returns false when the earlier attempt was rejected, so the retry is not a duplicate")
-        void falseWhenEarlierAttemptWasRejected() {
-            InboundEventLog event = buildEvent("evt-002", "urn:source:a", InboundStatus.REJECTED);
-            event.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC));
-            repository.save(event);
+        @DisplayName("an event rejected because it is wrong (INVALID_FHIR) is final")
+        void rejectedByValidationIsFinal() {
+            save("evt-002", InboundStatus.REJECTED, "INVALID_FHIR", 0);
 
-            boolean exists = repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    "evt-002", "urn:source:a", InboundStatus.ACCEPTED,
-                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
-
-            assertThat(exists).isFalse();
+            assertThat(finalAttemptExists("evt-002")).isTrue();
         }
 
         @Test
-        @DisplayName("returns false when the earlier attempt is still RECEIVED")
-        void falseWhenEarlierAttemptIsStillReceived() {
-            InboundEventLog event = buildEvent("evt-002", "urn:source:a", InboundStatus.RECEIVED);
-            event.setReceivedAt(OffsetDateTime.now(ZoneOffset.UTC));
-            repository.save(event);
+        @DisplayName("an event rejected with KAFKA_PUBLISH_FAILURE is not final, so the retry is not a duplicate")
+        void rejectedByKafkaFailureIsNotFinal() {
+            save("evt-002", InboundStatus.REJECTED, "KAFKA_PUBLISH_FAILURE", 0);
 
-            boolean exists = repository.existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
-                    "evt-002", "urn:source:a", InboundStatus.ACCEPTED,
-                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
+            assertThat(finalAttemptExists("evt-002")).isFalse();
+        }
 
-            assertThat(exists).isFalse();
+        @Test
+        @DisplayName("an event rejected with INTERNAL_ERROR is not final")
+        void rejectedByInternalErrorIsNotFinal() {
+            save("evt-002", InboundStatus.REJECTED, "INTERNAL_ERROR", 0);
+
+            assertThat(finalAttemptExists("evt-002")).isFalse();
+        }
+
+        @Test
+        @DisplayName("an event that is still RECEIVED is not final")
+        void receivedIsNotFinal() {
+            save("evt-002", InboundStatus.RECEIVED, null, 0);
+
+            assertThat(finalAttemptExists("evt-002")).isFalse();
+        }
+
+        @Test
+        @DisplayName("an accepted event before the lookback timestamp does not count")
+        void acceptedOutsideWindowDoesNotCount() {
+            save("evt-002", InboundStatus.ACCEPTED, null, 48);
+
+            assertThat(finalAttemptExists("evt-002")).isFalse();
+        }
+
+        @Test
+        @DisplayName("another id or another source does not count")
+        void otherEventDoesNotCount() {
+            save("evt-002", InboundStatus.ACCEPTED, null, 0);
+
+            assertThat(finalAttemptExists("evt-999")).isFalse();
+            assertThat(repository.existsFinalAttempt("evt-002", "urn:source:b",
+                    OffsetDateTime.now(ZoneOffset.UTC).minusHours(1),
+                    InboundStatus.ACCEPTED, InboundStatus.REJECTED, RETRYABLE)).isFalse();
         }
     }
 
-    // ─── findByStatusAndRejectionReasonOrderByReceivedAtAsc ───────────
+    // ─── findByStatusAndRejectionReasonInOrderByReceivedAtAsc ─────────
 
     @Nested
-    @DisplayName("findByStatusAndRejectionReasonOrderByReceivedAtAsc")
-    class FindByStatusAndRejectionReason {
+    @DisplayName("findByStatusAndRejectionReasonInOrderByReceivedAtAsc")
+    class FindByStatusAndRejectionReasonIn {
 
         @Test
-        @DisplayName("returns only the events with that status and reason, oldest first, up to the page size")
+        @DisplayName("returns only the events with that status and one of the reasons, oldest first, up to the page size")
         void returnsOldestMatchingEventsFirst() {
             saveRejected("evt-new", "KAFKA_PUBLISH_FAILURE", 1);
-            saveRejected("evt-old", "KAFKA_PUBLISH_FAILURE", 3);
+            saveRejected("evt-old", "INTERNAL_ERROR", 3);
             saveRejected("evt-middle", "KAFKA_PUBLISH_FAILURE", 2);
             saveRejected("evt-invalid", "INVALID_FHIR", 4);
             repository.save(buildEvent("evt-accepted", "urn:source:a", InboundStatus.ACCEPTED));
 
-            List<InboundEventLog> result = repository.findByStatusAndRejectionReasonOrderByReceivedAtAsc(
-                    InboundStatus.REJECTED, "KAFKA_PUBLISH_FAILURE", PageRequest.of(0, 2));
+            List<InboundEventLog> result = repository.findByStatusAndRejectionReasonInOrderByReceivedAtAsc(
+                    InboundStatus.REJECTED, List.of("KAFKA_PUBLISH_FAILURE", "INTERNAL_ERROR"),
+                    PageRequest.of(0, 2));
 
             assertThat(result).extracting(InboundEventLog::getCloudeventsId)
                     .containsExactly("evt-old", "evt-middle");

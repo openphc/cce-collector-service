@@ -7,11 +7,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Turns on scheduled jobs. The only job is
  * {@link org.openphc.cce.collector.service.RejectedEventRepublisher}.
- * Set {@code cce.collector.republish.enabled=false} to turn it off.
+ * It is off by default. Set {@code cce.collector.republish.enabled=true} to turn it on.
  */
 @Configuration
 @EnableScheduling
-@ConditionalOnProperty(prefix = "cce.collector.republish", name = "enabled", havingValue = "true",
-        matchIfMissing = true)
+@ConditionalOnProperty(prefix = "cce.collector.republish", name = "enabled", havingValue = "true")
 public class SchedulingConfig {
 }

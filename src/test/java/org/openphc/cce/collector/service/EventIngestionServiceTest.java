@@ -228,8 +228,8 @@ class EventIngestionServiceTest {
             order.verify(repository).save(any(InboundEventLog.class));      // Step 4: persist RECEIVED
             order.verify(enricher).enrich(eq(request), any(InboundEventLog.class));
             order.verify(payloadValidator).validatePayload(request);
-            order.verify(repository).save(any(InboundEventLog.class));      // Step 7: persist ACCEPTED
-            order.verify(eventPublisher).publish(any(EventIngestionRequest.class));
+            order.verify(eventPublisher).publish(any(EventIngestionRequest.class)); // Step 7: publish
+            order.verify(repository).save(any(InboundEventLog.class));      // Step 8: persist ACCEPTED
         }
 
         @Test
@@ -547,11 +547,11 @@ class EventIngestionServiceTest {
         }
 
         @Test
-        @DisplayName("Event was ACCEPTED before Kafka failure is recorded")
-        void eventWasAcceptedBeforeKafkaFailure() {
+        @DisplayName("Event is never ACCEPTED when the Kafka publish fails")
+        void eventIsNotAcceptedWhenKafkaPublishFails() {
             EventIngestionRequest request = buildValidFhirRequest();
 
-            // Track status at each save to verify RECEIVED → ACCEPTED transition
+            // Track the status at each save
             List<InboundStatus> savedStatuses = new ArrayList<>();
             when(repository.save(any(InboundEventLog.class))).thenAnswer(invocation -> {
                 InboundEventLog event = invocation.getArgument(0);
@@ -568,10 +568,75 @@ class EventIngestionServiceTest {
             assertThatThrownBy(() -> service.ingest(request))
                     .isInstanceOf(KafkaPublishException.class);
 
-            // Verify two saves: RECEIVED (step 4) + ACCEPTED (step 7)
-            assertThat(savedStatuses).hasSize(2);
-            assertThat(savedStatuses.get(0)).isEqualTo(InboundStatus.RECEIVED);
-            assertThat(savedStatuses.get(1)).isEqualTo(InboundStatus.ACCEPTED);
+            // One save only: RECEIVED (step 4). The rejection is saved by RejectionService (mocked).
+            assertThat(savedStatuses).containsExactly(InboundStatus.RECEIVED);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Retry of an event that was never accepted
+    // ════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Retry of an event whose earlier attempt is not final → processed again on the same row")
+    class RetryOfEventThatWasNotAccepted {
+
+        private InboundEventLog rejectedEarlierAttempt(UUID existingId) {
+            InboundEventLog earlierAttempt = InboundEventLog.builder()
+                    .cloudeventsId(CLOUD_EVENTS_ID)
+                    .source(SOURCE)
+                    .rawPayload("{}")
+                    .status(InboundStatus.REJECTED)
+                    .rejectionReason(RejectionReason.KAFKA_PUBLISH_FAILURE.name())
+                    .errorDetails("Timeout")
+                    .build();
+            earlierAttempt.setId(existingId);
+            return earlierAttempt;
+        }
+
+        @Test
+        @DisplayName("A retry after a failed Kafka publish is published and accepted, not answered duplicate")
+        void retryAfterFailedPublishIsAccepted() {
+            EventIngestionRequest request = buildValidFhirRequest();
+            UUID existingId = UUID.randomUUID();
+            // The earlier attempt failed at the Kafka publish. That is not final, so this is not a duplicate.
+            when(deduplicationService.isDuplicate(CLOUD_EVENTS_ID, SOURCE)).thenReturn(false);
+            when(repository.findByCloudeventsIdAndSource(CLOUD_EVENTS_ID, SOURCE))
+                    .thenReturn(Optional.of(rejectedEarlierAttempt(existingId)));
+            stubRepositorySave();
+
+            EventIngestionResponse response = service.ingest(request);
+
+            assertThat(response.getStatus()).isEqualTo("accepted");
+            assertThat(response.getEventId()).isEqualTo(existingId.toString());
+            verify(eventPublisher).publish(request);
+        }
+
+        @Test
+        @DisplayName("The retry uses the row of the earlier attempt again and clears its rejection")
+        void retryReusesTheRowAndClearsTheRejection() {
+            EventIngestionRequest request = buildValidFhirRequest();
+            UUID existingId = UUID.randomUUID();
+            InboundEventLog earlierAttempt = rejectedEarlierAttempt(existingId);
+            when(repository.findByCloudeventsIdAndSource(CLOUD_EVENTS_ID, SOURCE))
+                    .thenReturn(Optional.of(earlierAttempt));
+
+            List<InboundStatus> savedStatuses = new ArrayList<>();
+            when(repository.save(any(InboundEventLog.class))).thenAnswer(invocation -> {
+                InboundEventLog event = invocation.getArgument(0);
+                savedStatuses.add(event.getStatus());
+                return event;
+            });
+
+            service.ingest(request);
+
+            ArgumentCaptor<InboundEventLog> captor = ArgumentCaptor.forClass(InboundEventLog.class);
+            verify(repository, org.mockito.Mockito.times(2)).save(captor.capture());
+            assertThat(captor.getAllValues()).allSatisfy(saved -> assertThat(saved).isSameAs(earlierAttempt));
+            assertThat(savedStatuses).containsExactly(InboundStatus.RECEIVED, InboundStatus.ACCEPTED);
+            assertThat(earlierAttempt.getRejectionReason()).isNull();
+            assertThat(earlierAttempt.getErrorDetails()).isNull();
+            assertThat(earlierAttempt.getRawPayload()).contains(CLOUD_EVENTS_ID);
         }
     }
 

@@ -51,9 +51,9 @@ Status of an `inbound_event_log` record as it moves through the pipeline.
 
 | Value | Description |
 |-------|-------------|
-| `RECEIVED` | Initial state — event persisted, not yet processed |
-| `ACCEPTED` | Validation passed, event published to Kafka |
-| `REJECTED` | Validation or Kafka publish failed — see `rejection_reason` for cause |
+| `RECEIVED` | Initial state — event persisted, not yet published to Kafka |
+| `ACCEPTED` | Validation passed and the event is published to Kafka. Set only after the publish worked |
+| `REJECTED` | Validation or Kafka publish failed — see `rejection_reason` for cause. A row that is `REJECTED` with `KAFKA_PUBLISH_FAILURE` or `INTERNAL_ERROR` can become `ACCEPTED` later, when the source retries or the republish job publishes it |
 | `DUPLICATE` | Event already seen (same `cloudevents_id` + `source`) |
 
 ### 2.2 `RejectionReason`
@@ -72,6 +72,8 @@ Reason an event was rejected (stored on `inbound_event_log.rejection_reason`).
 | `DESERIALIZATION_ERROR` | Request body could not be parsed as JSON |
 | `KAFKA_PUBLISH_FAILURE` | Kafka broker unavailable or publish timed out — HTTP 500 returned to caller |
 | `INTERNAL_ERROR` | Unexpected failure during post-persist processing (safety net for orphaned RECEIVED records) |
+
+Only `KAFKA_PUBLISH_FAILURE` and `INTERNAL_ERROR` are tried again. They mean the Collector failed, not the event. An event with any other reason is final: when the source sends it again, the answer is "duplicate".
 
 ---
 

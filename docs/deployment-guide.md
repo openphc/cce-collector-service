@@ -141,7 +141,11 @@ All configuration can be overridden via environment variables using Spring Boot'
 | `CCE_COLLECTOR_DEDUP_LOOKBACK_DAYS` | `30` | Dedup lookback window (days) |
 | `CCE_COLLECTOR_MAX_PAYLOAD_SIZE` | `1048576` | Max event payload size (bytes, ~1 MB) |
 | `CCE_KAFKA_TOPICS_INBOUND_EVENTS` | `cce.events.inbound` | Inbound events topic. Not `CCE_COLLECTOR_`-prefixed: the name is bound by cce-common-util's `KafkaTopicProperties`, the same property the Matcher Service reads to find the topic it consumes from |
-| `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` | `30` | Synchronous Kafka publish timeout (seconds) |
+| `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` | `10` | Synchronous Kafka publish timeout (seconds). The emitter must wait longer than this plus `KAFKA_MAX_BLOCK_MS` |
+| `KAFKA_MAX_BLOCK_MS` | `3000` | How long a send may wait for broker metadata (milliseconds) |
+| `CCE_COLLECTOR_REPUBLISH_ENABLED` | `false` | Turn on the job that tries again the stored events rejected with `KAFKA_PUBLISH_FAILURE` or `INTERNAL_ERROR`. Off by default. Example: turn it on after a Kafka outage, then off again |
+| `CCE_COLLECTOR_REPUBLISH_INTERVAL_MS` | `60000` | Wait time between two republish runs (milliseconds) |
+| `CCE_COLLECTOR_REPUBLISH_BATCH_SIZE` | `500` | Most events tried again in one run |
 | `CCE_COLLECTOR_KAFKA_TOPIC_PARTITIONS` | `25` | Inbound topic partition count |
 | `CCE_COLLECTOR_KAFKA_TOPIC_REPLICATION_FACTOR` | `1` | Inbound topic replication factor |
 | `CCE_COLLECTOR_KAFKA_TOPIC_RETENTION_MS` | `604800000` | Inbound topic retention (ms, default 7 days) |

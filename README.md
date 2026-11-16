@@ -299,7 +299,7 @@ SELECT * FROM inbound_event_log WHERE id = '<uuid>';
 | `cce.collector.max-payload-size` | `1048576` | Max payload size in bytes (1 MB) |
 | `cce.collector.fhir.strict-validation` | `false` | FHIR strict validation mode |
 | `cce.kafka.topics.inbound-events` | `cce.events.inbound` | Kafka inbound topic name — bound by cce-common-util's `KafkaTopicProperties`, the same key the Matcher Service reads |
-| `cce.kafka.publish-timeout-seconds` | `30` | Kafka synchronous publish timeout |
+| `cce.kafka.publish-timeout-seconds` | `10` | Kafka synchronous publish timeout |
 | `cce.kafka.topic-config.partitions` | `25` | Inbound topic partition count |
 | `cce.kafka.topic-config.replication-factor` | `1` | Inbound topic replication factor |
 | `cce.kafka.topic-config.retention-ms` | `604800000` | Inbound topic retention (ms, 7 days) |

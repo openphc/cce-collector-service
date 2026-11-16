@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  *   kafka:
  *     topics:
  *       inbound-events: cce.events.inbound   # shared — KafkaTopicProperties
- *     publish-timeout-seconds: 30
+ *     publish-timeout-seconds: 10
  *     topic-config:
  *       partitions: 25
  *       replication-factor: 1

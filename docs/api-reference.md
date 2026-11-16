@@ -216,5 +216,5 @@ Multi-word field names follow the CloudEvents convention of concatenated lowerca
 | Max event ID length | 50 characters | — |
 | Dedup lookback window | 30 days (configurable) | `CCE_COLLECTOR_DEDUP_LOOKBACK_DAYS` |
 | Kafka publish retries | 3 (producer-level) | `SPRING_KAFKA_PRODUCER_RETRIES` |
-| Kafka publish timeout | 30 seconds | `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` |
+| Kafka publish timeout | 10 seconds | `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` |
 | Max payload size | 1 MB | `CCE_COLLECTOR_MAX_PAYLOAD_SIZE` |

@@ -64,6 +64,9 @@ spring:
       retries: ${SPRING_KAFKA_PRODUCER_RETRIES:3}
       properties:
         enable.idempotence: true
+        # How long a send may wait for broker metadata before it fails.
+        # The emitter waits longer than max.block.ms + publish-timeout-seconds. See publish-timeout-seconds.
+        max.block.ms: ${KAFKA_MAX_BLOCK_MS:3000}
         max.in.flight.requests.per.connection: 5
         linger.ms: ${KAFKA_LINGER_MS:5}
         batch.size: ${KAFKA_BATCH_SIZE:16384}
@@ -89,6 +92,13 @@ cce:
   collector:
     dedup:
       lookback-days: ${CCE_COLLECTOR_DEDUP_LOOKBACK_DAYS:30}
+    # Tries again the stored events that were rejected because the Collector failed
+    # (REJECTED with KAFKA_PUBLISH_FAILURE or INTERNAL_ERROR). Off by default.
+    # Example: turn it on after a Kafka outage, until the waiting events are published.
+    republish:
+      enabled: ${CCE_COLLECTOR_REPUBLISH_ENABLED:false}
+      interval-ms: ${CCE_COLLECTOR_REPUBLISH_INTERVAL_MS:60000}
+      batch-size: ${CCE_COLLECTOR_REPUBLISH_BATCH_SIZE:500}
     max-payload-size: ${CCE_COLLECTOR_MAX_PAYLOAD_SIZE:1048576}
     fhir:
       strict-validation: ${CCE_COLLECTOR_FHIR_STRICT_VALIDATION:false}
@@ -98,7 +108,10 @@ cce:
       # Bound by cce-common-util's KafkaTopicProperties — the same key the Matcher Service reads to
       # find the topic it consumes from.
       inbound-events: ${CCE_KAFKA_TOPICS_INBOUND_EVENTS:cce.events.inbound}
-    publish-timeout-seconds: ${CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS:30}
+    # The emitter's timeout for a call to the Collector must be longer than
+    # max.block.ms + publish-timeout-seconds (3 s + 10 s here, emitter: 15 s).
+    # If it is shorter, the emitter gives up and retries while this publish is still running.
+    publish-timeout-seconds: ${CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS:10}
     topic-config:
       partitions: ${CCE_COLLECTOR_KAFKA_TOPIC_PARTITIONS:25}
       replication-factor: ${CCE_COLLECTOR_KAFKA_TOPIC_REPLICATION_FACTOR:1}

@@ -12,6 +12,8 @@ import org.openphc.cce.collector.api.dto.EventIngestionRequest;
 import org.openphc.cce.collector.api.exception.KafkaPublishException;
 import org.openphc.cce.collector.domain.model.InboundEventLog;
 import org.openphc.cce.collector.domain.model.enums.InboundStatus;
+import org.openphc.cce.collector.service.RejectedEventRepublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.List;
@@ -35,6 +37,9 @@ class EventIngestionIntegrationTest extends AbstractIntegrationTest {
 
     private static final String EVENTS_URL = "/v1/events";
     private static final MediaType JSON = MediaType.APPLICATION_JSON;
+
+    @Autowired
+    private RejectedEventRepublisher rejectedEventRepublisher;
 
     @BeforeEach
     void setUp() {
@@ -530,6 +535,166 @@ class EventIngestionIntegrationTest extends AbstractIntegrationTest {
             assertThat(events).hasSize(1);
             assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.REJECTED);
             assertThat(events.get(0).getRejectionReason()).isEqualTo("KAFKA_PUBLISH_FAILURE");
+        }
+
+        @Test
+        @DisplayName("Retry after a Kafka publish failure → 202 accepted, published, same row ACCEPTED")
+        void retryAfterKafkaFailure_isAcceptedAndPublished() throws Exception {
+            // First attempt: Kafka is down. Second attempt: Kafka is back.
+            doThrow(new KafkaPublishException("cce.events.inbound",
+                    new RuntimeException("Broker unavailable")))
+                    .doNothing()
+                    .when(inboundEventProducer).publish(any(EventIngestionRequest.class));
+
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isInternalServerError());
+
+            // The source sends the same event again. It must not be answered "duplicate".
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.data.status").value("accepted"));
+
+            verify(inboundEventProducer, times(2)).publish(any(EventIngestionRequest.class));
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.ACCEPTED);
+            assertThat(events.get(0).getRejectionReason()).isNull();
+
+            // A third attempt is a real duplicate now.
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("duplicate"));
+            verify(inboundEventProducer, times(2)).publish(any(EventIngestionRequest.class));
+        }
+
+        @Test
+        @DisplayName("Retry of an event rejected by validation → 200 duplicate, not processed again")
+        void retryOfInvalidEvent_isFinal() throws Exception {
+            String invalidFhir = """
+                {
+                  "specversion": "1.0",
+                  "id": "evt-fhir-bad",
+                  "source": "urn:openhim:test",
+                  "type": "org.openphc.encounter",
+                  "subject": "UPID-12345",
+                  "datacontenttype": "application/fhir+json",
+                  "data": { "someField": "notAFhirResource" }
+                }
+                """;
+            mockMvc.perform(post(EVENTS_URL).contentType(JSON).content(invalidFhir))
+                    .andExpect(status().isUnprocessableEntity());
+
+            // The event is wrong. Sending it again cannot help, so the rejection is final.
+            mockMvc.perform(post(EVENTS_URL).contentType(JSON).content(invalidFhir))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("duplicate"));
+
+            verify(inboundEventProducer, never()).publish(any());
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.REJECTED);
+            assertThat(events.get(0).getRejectionReason()).isEqualTo("INVALID_FHIR");
+        }
+
+        @Test
+        @DisplayName("Retry of an event rejected with INTERNAL_ERROR → 202 accepted, published")
+        void retryAfterInternalError_isAcceptedAndPublished() throws Exception {
+            storeRejected("evt-001", "INTERNAL_ERROR", validFhirEncounterJson());
+
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.data.status").value("accepted"));
+
+            verify(inboundEventProducer, times(1)).publish(any(EventIngestionRequest.class));
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.ACCEPTED);
+            assertThat(events.get(0).getRejectionReason()).isNull();
+        }
+
+        @Test
+        @DisplayName("The republish job tries INTERNAL_ERROR and KAFKA_PUBLISH_FAILURE events, and leaves INVALID_FHIR alone")
+        void republishJob_triesOnlyRetryableReasons() throws Exception {
+            storeRejected("evt-001", "INTERNAL_ERROR", validFhirEncounterJson());
+            storeRejected("evt-002", "KAFKA_PUBLISH_FAILURE", validFhirEncounterJson().replace("evt-001", "evt-002"));
+            storeRejected("evt-003", "INVALID_FHIR", validFhirEncounterJson().replace("evt-001", "evt-003"));
+
+            int republished = rejectedEventRepublisher.republishRejectedEvents();
+
+            assertThat(republished).isEqualTo(2);
+            verify(inboundEventProducer, times(2)).publish(any(EventIngestionRequest.class));
+            assertThat(statusOf("evt-001")).isEqualTo(InboundStatus.ACCEPTED);
+            assertThat(statusOf("evt-002")).isEqualTo(InboundStatus.ACCEPTED);
+            assertThat(statusOf("evt-003")).isEqualTo(InboundStatus.REJECTED);
+        }
+
+        @Test
+        @DisplayName("The republish job validates again: a stored INTERNAL_ERROR event that is not valid FHIR becomes INVALID_FHIR")
+        void republishJob_validatesAgain() throws Exception {
+            String invalidFhir = validFhirEncounterJson().replace("\"resourceType\": \"Encounter\"", "\"someField\": \"x\"");
+            assertThat(invalidFhir).doesNotContain("resourceType");
+            storeRejected("evt-001", "INTERNAL_ERROR", invalidFhir);
+
+            int republished = rejectedEventRepublisher.republishRejectedEvents();
+
+            assertThat(republished).isZero();
+            verify(inboundEventProducer, never()).publish(any());
+            InboundEventLog event = inboundEventRepository.findByCloudeventsIdAndSource("evt-001", "urn:openhim:test")
+                    .orElseThrow();
+            assertThat(event.getStatus()).isEqualTo(InboundStatus.REJECTED);
+            assertThat(event.getRejectionReason()).isEqualTo("INVALID_FHIR");
+
+            // The reason is final now. The next run leaves the event alone.
+            assertThat(rejectedEventRepublisher.republishRejectedEvents()).isZero();
+        }
+
+        private void storeRejected(String cloudeventsId, String rejectionReason, String rawPayload) {
+            inboundEventRepository.save(InboundEventLog.builder()
+                    .cloudeventsId(cloudeventsId)
+                    .source("urn:openhim:test")
+                    .rawPayload(rawPayload)
+                    .status(InboundStatus.REJECTED)
+                    .rejectionReason(rejectionReason)
+                    .build());
+        }
+
+        private InboundStatus statusOf(String cloudeventsId) {
+            return inboundEventRepository.findByCloudeventsIdAndSource(cloudeventsId, "urn:openhim:test")
+                    .orElseThrow().getStatus();
+        }
+
+        @Test
+        @DisplayName("The republish job publishes a stored REJECTED event and marks it ACCEPTED")
+        void republishJob_publishesStoredRejectedEvent() throws Exception {
+            doThrow(new KafkaPublishException("cce.events.inbound",
+                    new RuntimeException("Broker unavailable")))
+                    .doNothing()
+                    .when(inboundEventProducer).publish(any(EventIngestionRequest.class));
+
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isInternalServerError());
+
+            int republished = rejectedEventRepublisher.republishRejectedEvents();
+
+            assertThat(republished).isEqualTo(1);
+            ArgumentCaptor<EventIngestionRequest> published = ArgumentCaptor.forClass(EventIngestionRequest.class);
+            verify(inboundEventProducer, times(2)).publish(published.capture());
+            assertThat(published.getValue().getId()).isEqualTo("evt-001");
+            assertThat(published.getValue().getSubject()).isEqualTo("UPID-12345");
+            assertThat(published.getValue().getData()).isEqualTo(published.getAllValues().get(0).getData());
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.ACCEPTED);
         }
     }
 

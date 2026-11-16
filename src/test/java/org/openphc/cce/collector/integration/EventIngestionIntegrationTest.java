@@ -12,6 +12,8 @@ import org.openphc.cce.collector.api.dto.EventIngestionRequest;
 import org.openphc.cce.collector.api.exception.KafkaPublishException;
 import org.openphc.cce.collector.domain.model.InboundEventLog;
 import org.openphc.cce.collector.domain.model.enums.InboundStatus;
+import org.openphc.cce.collector.service.RejectedEventRepublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.List;
@@ -35,6 +37,9 @@ class EventIngestionIntegrationTest extends AbstractIntegrationTest {
 
     private static final String EVENTS_URL = "/v1/events";
     private static final MediaType JSON = MediaType.APPLICATION_JSON;
+
+    @Autowired
+    private RejectedEventRepublisher rejectedEventRepublisher;
 
     @BeforeEach
     void setUp() {
@@ -530,6 +535,68 @@ class EventIngestionIntegrationTest extends AbstractIntegrationTest {
             assertThat(events).hasSize(1);
             assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.REJECTED);
             assertThat(events.get(0).getRejectionReason()).isEqualTo("KAFKA_PUBLISH_FAILURE");
+        }
+
+        @Test
+        @DisplayName("Retry after a Kafka publish failure → 202 accepted, published, same row ACCEPTED")
+        void retryAfterKafkaFailure_isAcceptedAndPublished() throws Exception {
+            // First attempt: Kafka is down. Second attempt: Kafka is back.
+            doThrow(new KafkaPublishException("cce.events.inbound",
+                    new RuntimeException("Broker unavailable")))
+                    .doNothing()
+                    .when(inboundEventProducer).publish(any(EventIngestionRequest.class));
+
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isInternalServerError());
+
+            // The source sends the same event again. It must not be answered "duplicate".
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.data.status").value("accepted"));
+
+            verify(inboundEventProducer, times(2)).publish(any(EventIngestionRequest.class));
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.ACCEPTED);
+            assertThat(events.get(0).getRejectionReason()).isNull();
+
+            // A third attempt is a real duplicate now.
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("duplicate"));
+            verify(inboundEventProducer, times(2)).publish(any(EventIngestionRequest.class));
+        }
+
+        @Test
+        @DisplayName("The republish job publishes a stored REJECTED event and marks it ACCEPTED")
+        void republishJob_publishesStoredRejectedEvent() throws Exception {
+            doThrow(new KafkaPublishException("cce.events.inbound",
+                    new RuntimeException("Broker unavailable")))
+                    .doNothing()
+                    .when(inboundEventProducer).publish(any(EventIngestionRequest.class));
+
+            mockMvc.perform(post(EVENTS_URL)
+                            .contentType(JSON)
+                            .content(validFhirEncounterJson()))
+                    .andExpect(status().isInternalServerError());
+
+            int republished = rejectedEventRepublisher.republishRejectedEvents();
+
+            assertThat(republished).isEqualTo(1);
+            ArgumentCaptor<EventIngestionRequest> published = ArgumentCaptor.forClass(EventIngestionRequest.class);
+            verify(inboundEventProducer, times(2)).publish(published.capture());
+            assertThat(published.getValue().getId()).isEqualTo("evt-001");
+            assertThat(published.getValue().getSubject()).isEqualTo("UPID-12345");
+            assertThat(published.getValue().getData()).isEqualTo(published.getAllValues().get(0).getData());
+            List<InboundEventLog> events = inboundEventRepository.findAll();
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).getStatus()).isEqualTo(InboundStatus.ACCEPTED);
         }
     }
 

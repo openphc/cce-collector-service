@@ -51,9 +51,9 @@ Status of an `inbound_event_log` record as it moves through the pipeline.
 
 | Value | Description |
 |-------|-------------|
-| `RECEIVED` | Initial state — event persisted, not yet processed |
-| `ACCEPTED` | Validation passed, event published to Kafka |
-| `REJECTED` | Validation or Kafka publish failed — see `rejection_reason` for cause |
+| `RECEIVED` | Initial state — event persisted, not yet published to Kafka |
+| `ACCEPTED` | Validation passed and the event is published to Kafka. Set only after the publish worked |
+| `REJECTED` | Validation or Kafka publish failed — see `rejection_reason` for cause. A `REJECTED` row can become `ACCEPTED` later, when the source retries or the republish job publishes it |
 | `DUPLICATE` | Event already seen (same `cloudevents_id` + `source`) |
 
 ### 2.2 `RejectionReason`

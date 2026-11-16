@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,13 +24,15 @@ public interface InboundEventLogRepository extends JpaRepository<InboundEventLog
     /**
      * Find an event by its CloudEvents id and source (exact match).
      *
-     * <p>Used for entity retrieval — returning the existing {@code eventId} in the
-     * idempotent 200 duplicate response, and for the rejected-event retry endpoint
-     * ({@code POST /v1/events/rejected/{id}/retry}) which re-runs validation on
-     * the original {@code raw_payload}.</p>
+     * <p>Used to fetch the row itself:</p>
+     * <ul>
+     *   <li>to return the existing {@code eventId} in the idempotent 200 duplicate response;</li>
+     *   <li>to use the row of an earlier attempt again, when the source retries an event
+     *       that was never accepted.</li>
+     * </ul>
      *
      * <p><strong>Not</strong> the dedup decision method — see
-     * {@link #existsByCloudeventsIdAndSourceAndReceivedAtAfter}.</p>
+     * {@link #existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter}.</p>
      *
      * @param cloudeventsId the CloudEvents id
      * @param source        the event source
@@ -38,19 +41,34 @@ public interface InboundEventLogRepository extends JpaRepository<InboundEventLog
     Optional<InboundEventLog> findByCloudeventsIdAndSource(String cloudeventsId, String source);
 
     /**
-     * Check if a duplicate event exists within the lookback window.
+     * Check if an event with the given status exists within the lookback window.
      *
      * <p>This is the <strong>primary dedup decision</strong> used during event
-     * ingestion (Step 3 of the processing pipeline). Returns a lightweight
-     * boolean — no entity hydration — keeping the hot path fast.</p>
+     * ingestion (Step 3 of the processing pipeline), called with status ACCEPTED.
+     * A row that is RECEIVED or REJECTED never reached Kafka, so it does not make
+     * the retry a duplicate. Returns a lightweight boolean — no entity hydration —
+     * keeping the hot path fast.</p>
      *
      * @param cloudeventsId the CloudEvents id
      * @param source        the event source
+     * @param status        the status the earlier event must have (ACCEPTED)
      * @param since         the start of the lookback window (e.g. {@code now() − 30 days})
-     * @return true if a matching event exists after the given date
+     * @return true if a matching event with that status exists after the given date
      */
-    boolean existsByCloudeventsIdAndSourceAndReceivedAtAfter(
-            String cloudeventsId, String source, OffsetDateTime since);
+    boolean existsByCloudeventsIdAndSourceAndStatusAndReceivedAtAfter(
+            String cloudeventsId, String source, InboundStatus status, OffsetDateTime since);
+
+    /**
+     * Find the oldest events with the given status and rejection reason.
+     * Used to publish again the events whose Kafka publish failed.
+     *
+     * @param status          the status to filter by (REJECTED)
+     * @param rejectionReason the rejection reason to filter by (KAFKA_PUBLISH_FAILURE)
+     * @param pageable        how many rows to read
+     * @return the matching events, oldest first
+     */
+    List<InboundEventLog> findByStatusAndRejectionReasonOrderByReceivedAtAsc(
+            InboundStatus status, String rejectionReason, Pageable pageable);
 
     /**
      * Find events by status, ordered by most recent first.

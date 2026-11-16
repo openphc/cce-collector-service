@@ -69,7 +69,7 @@ service's own, in `KafkaPublishProperties` (`prefix = "cce.kafka"`):
 | Property | Default | Env Var |
 |----------|---------|--------|
 | `cce.kafka.topics.inbound-events` | `cce.events.inbound` | `CCE_KAFKA_TOPICS_INBOUND_EVENTS` |
-| `cce.kafka.publish-timeout-seconds` | `30` | `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` |
+| `cce.kafka.publish-timeout-seconds` | `10` | `CCE_COLLECTOR_KAFKA_PUBLISH_TIMEOUT_SECONDS` |
 
 ### Topic Creation Configuration
 

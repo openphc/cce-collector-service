@@ -33,9 +33,14 @@ import java.util.List;
  *   <li>Persist to {@code inbound_event_log} (status = RECEIVED) — raw request stored as-is</li>
  *   <li>Apply server-side defaults (correlationid, time)</li>
  *   <li>Payload validation (branched by datacontenttype) → 422 on failure</li>
- *   <li>Update {@code inbound_event_log.status} = ACCEPTED</li>
  *   <li>Synchronous Kafka publish → 500 on failure</li>
+ *   <li>Update {@code inbound_event_log.status} = ACCEPTED</li>
  * </ol>
+ *
+ * <p>ACCEPTED means the event is in Kafka. Only an ACCEPTED event is a duplicate.
+ * When the source sends again an event that was not accepted, the event is processed
+ * again on the same row. This is how a failed Kafka publish is repaired by the
+ * source's retry.</p>
  *
  * <p>Each failure case updates the {@code inbound_event_log} record with the
  * appropriate {@link RejectionReason} (except envelope failures which occur
@@ -43,7 +48,7 @@ import java.util.List;
  *
  * <p>No {@code @Transactional} annotation — each {@code repository.save()}
  * auto-commits in its own transaction. This ensures the initial persist
- * (Step 4) is committed <strong>before</strong> Kafka publish (Step 8),
+ * (Step 4) is committed <strong>before</strong> Kafka publish (Step 7),
  * satisfying the transaction boundary requirement.</p>
  */
 @Slf4j
@@ -135,6 +140,7 @@ public class EventIngestionService {
         checkPayloadSize(request);
 
         // ── Step 3: Deduplication check ────────────────────────────
+        // Only an event that was accepted before is a duplicate.
         if (deduplicationService.isDuplicate(request.getId(), request.getSource())) {
             duplicateCounter.increment();
             InboundEventLog existing = repository
@@ -146,7 +152,8 @@ public class EventIngestionService {
         }
 
         // ── Step 4: Persist to inbound_event_log (RECEIVED) ───────────
-        InboundEventLog inbound = buildInboundEvent(request);
+        // A retry of an event that was never accepted uses its existing row again.
+        InboundEventLog inbound = inboundEventForThisAttempt(request);
         inbound = repository.save(inbound);
         log.info("Event persisted: id={}, cloudeventsId={}, status=RECEIVED",
                 inbound.getId(), inbound.getCloudeventsId());
@@ -169,13 +176,7 @@ public class EventIngestionService {
                 throw ex;
             }
 
-            // ── Step 7: Update status = ACCEPTED ───────────────────
-            inbound.setStatus(InboundStatus.ACCEPTED);
-            inbound = repository.save(inbound);
-            log.info("Event accepted: id={}, cloudeventsId={}",
-                    inbound.getId(), inbound.getCloudeventsId());
-
-            // ── Step 8: Synchronous Kafka publish ──────────────────
+            // ── Step 7: Synchronous Kafka publish ──────────────────
             try {
                 eventPublisher.publish(request);
             } catch (KafkaPublishException ex) {
@@ -188,6 +189,13 @@ public class EventIngestionService {
                 throw new KafkaPublishException(
                         kafkaTopicProperties.getInboundEvents(), ex);
             }
+
+            // ── Step 8: Update status = ACCEPTED ───────────────────
+            // ACCEPTED means the event is in Kafka. So it is set only after the publish worked.
+            inbound.setStatus(InboundStatus.ACCEPTED);
+            inbound = repository.save(inbound);
+            log.info("Event accepted: id={}, cloudeventsId={}",
+                    inbound.getId(), inbound.getCloudeventsId());
         } catch (PayloadValidationException ex) {
             // Already handled above — rethrow as-is
             incrementRejectedCounter(ex.getRejectionReason().name());
@@ -261,6 +269,40 @@ public class EventIngestionService {
                                 + maxPayloadSize + " bytes"));
             }
         }
+    }
+
+    /**
+     * Give the {@code inbound_event_log} row for this attempt.
+     *
+     * <ul>
+     *   <li>First attempt: a new row.</li>
+     *   <li>Retry of an event that was never accepted: the row of the earlier attempt.
+     *       The table allows one row per {@code (cloudevents_id, source)}, so the row is
+     *       used again. It goes back to RECEIVED and the old rejection is cleared.</li>
+     * </ul>
+     *
+     * <p>Example: the first attempt failed at the Kafka publish and the row is REJECTED.
+     * The source sends the event again. The same row is processed again and, when the
+     * publish works, becomes ACCEPTED.</p>
+     */
+    private InboundEventLog inboundEventForThisAttempt(EventIngestionRequest request) {
+        return repository.findByCloudeventsIdAndSource(request.getId(), request.getSource())
+                .map(earlierAttempt -> resetForRetry(earlierAttempt, request))
+                .orElseGet(() -> buildInboundEvent(request));
+    }
+
+    /**
+     * Put the row of an earlier attempt back to RECEIVED, with the payload of this attempt.
+     */
+    private InboundEventLog resetForRetry(InboundEventLog earlierAttempt, EventIngestionRequest request) {
+        log.info("Retry of an event that was not accepted: id={}, cloudeventsId={}, previousStatus={}, previousReason={}",
+                earlierAttempt.getId(), earlierAttempt.getCloudeventsId(),
+                earlierAttempt.getStatus(), earlierAttempt.getRejectionReason());
+        earlierAttempt.setStatus(InboundStatus.RECEIVED);
+        earlierAttempt.setRejectionReason(null);
+        earlierAttempt.setErrorDetails(null);
+        earlierAttempt.setRawPayload(objectMapper.valueToTree(request).toString());
+        return earlierAttempt;
     }
 
     /**
